@@ -12,6 +12,7 @@ def distSample(numbers, probabilities, rnd_num):
 
     cum_prob = 0
     sampled_int = 0
+    print(probabilities)
     while rnd_num > cum_prob:
         cum_prob += probabilities[sampled_int]
         sampled_int += 1

@@ -1,6 +1,6 @@
 import numpy as np
-from .CPC18_getDist import CPC18_getDist
-from .CPC15_BEASTsimulation import CPC15_BEASTsimulation
+from CPC18_getDist import CPC18_getDist
+from CPC15_BEASTsimulation import CPC15_BEASTsimulation
 
 
 def CPC15_BEASTpred(Ha, pHa, La, LotShapeA, LotNumA, Hb, pHb, Lb, LotShapeB, LotNumB, Amb, Corr):

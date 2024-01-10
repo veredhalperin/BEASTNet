@@ -1,4 +1,4 @@
-from CPC18PsychForestPython.CPC18_getDist import CPC18_getDist
+from CPC18_getDist import CPC18_getDist
 import warnings
 import numpy as np
 import copy
@@ -8,6 +8,9 @@ import logging
 import pandas as pd
 import torch
 import os
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+from get_PF_Features import get_PF_Features
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
 torch.autograd.set_detect_anomaly(True)
 biases = ['unb', 'uni', 'pes', 'sig']
@@ -761,7 +764,7 @@ def preprocess(csvName, pklName):
     """
     :param csvName: name of the csv file it based on, without '.csv' ending
     it needs to be in this shape (TEST_TRAIN can be 'TEST' or 'TRAIN', and Problem is the GameID):
-    Ha	pHa	La	Hb	pHb	Lb	LotShapeA	LotNumA	LotShapeB	LotNumB	B_rate	TEST_TRAIN	Problem
+    Ha	pHa	La	Hb	pHb	Lb	LotShapeA	LotNumA	LotShapeB	LotNumB	bRate	TEST_TRAIN	Problem
     :param pklName: name of the pickle files the function will create (without the numbers or .pkl at at the end)
 
     this function creates pickle files (a file for each 100 games) with the weights+ST possible values vectors of all ST combinations per game
@@ -769,6 +772,20 @@ def preprocess(csvName, pklName):
     this funtion pre-process the data before the network, you run this only once!!
     """
     Data = pd.read_csv(csvName + '.csv')
+    def LotShape(LotShapeX):
+        if LotShapeX==0:
+            return '-'
+        elif LotShapeX==1:
+            return 'Symm'
+        elif LotShapeX==2:
+            return 'L-skew'
+        elif LotShapeX==3:
+            return 'R-skew'
+        else:
+            return LotShapeX
+
+    Data['LotShapeA']=Data.apply(lambda x:LotShape(x['LotShapeA']),axis=1)
+    Data['LotShapeB'] = Data.apply(lambda x: LotShape(x['LotShapeB']), axis=1)
     BEVas, BEVbs = [], []
     probs, differences, probs0, differences0 = {}, {}, {}, {}
     for i in range(0,4):
@@ -914,14 +931,14 @@ class BEASTNet(torch.nn.Module):
         )))
 
 
-def trainBEASTNet(nLastFile, pklName, csvName, csvNameFinal, logName, probs0, probs1, probs2, probs3, probs4, BEV, b,nIterations=10):
+def trainBEASTNet(nLastFile, pklName, csvName, csvNameFinal, logName, probs0, probs1, probs2, probs3, probs4, BEV, b,nIterations=10,dom=True):
     """
     :param nLastFile: the number that at the end of the name of the last file
     :param pklName: name of the pickle files name without the '_number' at the end or '.pkl' ending that the function preprocess created. refred to a picke file with the whole dataset and not per sub group!!!
     :param csvName: name of the csv  file of the data you want to run the network on without the '.csv' ending file
     (if you want to run it on sub group from the original data this csv needs to be with the sub group only!!!, but the picke files doesn't!!!!)
     it needs to be in this shape (TEST_TRAIN can be 'TEST' or 'TRAIN', and Problem is the GameID):
-    Ha	pHa	La	Hb	pHb	Lb	LotShapeA	LotNumA	LotShapeB	LotNumB	B_rate	TEST_TRAIN	Problem
+    Ha	pHa	La	Hb	pHb	Lb	LotShapeA	LotNumA	LotShapeB	LotNumB	bRate	TEST_TRAIN	Problem
     :param csvNameFinal: name of the final csv file the model is creating without the '.csv' ending
     :param logName:name of the log file without the '.log' ending
     :param probs0: prior value of the vector that is the bias probabilities in trial 0 are based on- numbers in float (after a softmax on the vector you get the probabilities)
@@ -937,6 +954,10 @@ def trainBEASTNet(nLastFile, pklName, csvName, csvNameFinal, logName, probs0, pr
     it prints the parameters values  every 10 games in the log file and here (so the final values will be at the end of the file)
     and at the end creates a csv file (named by the param csvNameFinal) with the prediction of the tuned BEAST in a column named 'BEASTNET'
     """
+    if dom:
+        logName=logName+'_dom'
+    else:
+        logName=logName+'_non_dom'
     logging.basicConfig(filename=logName + '.log', level=logging.DEBUG)
     model = BEASTNet(probs0, probs1, probs2, probs3, probs4, BEV, b)
     criterion = torch.nn.MSELoss()
@@ -972,40 +993,45 @@ def trainBEASTNet(nLastFile, pklName, csvName, csvNameFinal, logName, probs0, pr
         df2 = pd.read_pickle(pklName + '_100.pkl')
 
     df = pd.read_csv(csvName + '.csv')
+    if dom:
+        df=df[df['Dom']!=0]
+    else:
+        df = df[df['Dom'] == 0]
     df2 = df2.merge(df, on='Problem')
     nProblems2 = len(df2)
     df2.index = range(nProblems2)
     logging.debug(datetime.now())
-    for t in range(nIterations):
-        df2 = df2.reindex(np.random.permutation(nProblems2))
-        print("########## round " + str(t) + " size of data " + str(nProblems2) + "##########")
-        logging.debug("########## round " + str(t) + " size of data " + str(nProblems2) + "##########")
-        for i in range(nProblems2):
-            print(str(i))
-            logging.debug(str(i))
-            if df2['TEST_TRAIN'][i] == 'TRAIN':
-                optimizer.zero_grad()
-                Pred = torch.cat(
-                    (Pred, torch.reshape(model(
-                        df2['BEVb'][i] - df2['BEVa'][i],
-                        [torch.reshape(torch.tensor(df2[j][i], dtype=torch.float64), (1, len(df2[j][i]))) for j in ST0],
-                        [torch.reshape(torch.tensor(df2[j][i], dtype=torch.float64), (len(df2[j][i]), 1)) for j in
-                         Weight0],
-                        [torch.reshape(torch.tensor(df2[j][i], dtype=torch.float64), (1, len(df2[j][i]))) for j in ST1],
-                        [torch.reshape(torch.tensor(df2[j][i], dtype=torch.float64), (len(df2[j][i]), 1)) for j in
-                         Weight1]), (1,))))
-                true = torch.cat(
-                    (true, torch.reshape(torch.tensor(df2['B_rate'][i], dtype=torch.float64, requires_grad=True), (1,))))
-                if (i + 1) % 10 == 0:
-                    loss = criterion(Pred, true)
-                    loss.backward(retain_graph=True)
-                    optimizer.step()
-                    j = 0
-                    for param in model.parameters():
-                        print(params[j] + ' ' + str(param))
-                        j += 1
-                    Pred = torch.tensor([], dtype=torch.float64, requires_grad=True)
-                    true = torch.tensor([], dtype=torch.float64, requires_grad=True)
+    if not dom:
+        for t in range(nIterations):
+            df2 = df2.reindex(np.random.permutation(nProblems2))
+            print("########## round " + str(t) + " size of data " + str(nProblems2) + "##########")
+            logging.debug("########## round " + str(t) + " size of data " + str(nProblems2) + "##########")
+            for i in range(nProblems2):
+                print(str(i))
+                logging.debug(str(i))
+                if df2['TEST_TRAIN'][i] == 'TRAIN':
+                    optimizer.zero_grad()
+                    Pred = torch.cat(
+                        (Pred, torch.reshape(model(
+                            df2['BEVb'][i] - df2['BEVa'][i],
+                            [torch.reshape(torch.tensor(df2[j][i], dtype=torch.float64), (1, len(df2[j][i]))) for j in ST0],
+                            [torch.reshape(torch.tensor(df2[j][i], dtype=torch.float64), (len(df2[j][i]), 1)) for j in
+                             Weight0],
+                            [torch.reshape(torch.tensor(df2[j][i], dtype=torch.float64), (1, len(df2[j][i]))) for j in ST1],
+                            [torch.reshape(torch.tensor(df2[j][i], dtype=torch.float64), (len(df2[j][i]), 1)) for j in
+                             Weight1]), (1,))))
+                    true = torch.cat(
+                        (true, torch.reshape(torch.tensor(df2['bRate'][i], dtype=torch.float64, requires_grad=True), (1,))))
+                    if (i + 1) % 10 == 0:
+                        loss = criterion(Pred, true)
+                        loss.backward(retain_graph=True)
+                        optimizer.step()
+                        j = 0
+                        for param in model.parameters():
+                            print(params[j] + ' ' + str(param))
+                            j += 1
+                        Pred = torch.tensor([], dtype=torch.float64, requires_grad=True)
+                        true = torch.tensor([], dtype=torch.float64, requires_grad=True)
     with torch.no_grad():
         j = 0
         for param in model.parameters():
@@ -1022,23 +1048,81 @@ def trainBEASTNet(nLastFile, pklName, csvName, csvNameFinal, logName, probs0, pr
                                                      [torch.reshape(torch.tensor(x[j], dtype=torch.float64),
                                                                     (len(x[j]), 1)) for j in
                                                       Weight1]).detach().numpy()), axis=1)
+        if dom:
+            csvNameFinal=csvNameFinal+'_dom'
+        else:
+            csvNameFinal = csvNameFinal + '_non_dom'
         pd.read_csv(csvName + '.csv').merge(df2[['BEASTNET', 'Problem']], on='Problem').to_csv(
             csvNameFinal + '.csv', index=False)
+        print("MSE ",dom,mean_squared_error(df2['bRate'],df2['BEASTNET']))
+def add_psych_features():
+    Data=pd.read_csv('c13k_selections.csv')
+    new_Data=pd.DataFrame()
+    nProblems = Data.shape[0]
+    for prob in range(nProblems):
+        print(prob)
+        Ha = Data['Ha'][prob]
+        pHa = Data['pHa'][prob]
+        La = Data['La'][prob]
+        LotShapeA = Data['LotShapeA'][prob]
+        LotNumA = Data['LotNumA'][prob]
+        Hb = Data['Hb'][prob]
+        pHb = Data['pHb'][prob]
+        Lb = Data['Lb'][prob]
+        LotShapeB = Data['LotShapeB'][prob]
+        LotNumB = Data['LotNumB'][prob]
+        Amb = Data['Amb'][prob]
+        Corr = Data['Corr'][prob]
+        Problem=Data['Problem'][prob]
+        new_Data=new_Data.append(get_PF_Features(Problem,Ha, pHa, La, LotShapeA, LotNumA, Hb, pHb, Lb, LotShapeB, LotNumB, Amb,Corr))
+    new_Data.to_csv('c13k_selections_new.csv',index=False)
+def test_train_split(num_splits=10,test_size=0.2):
+    """split the data to test-train, test size  is thr proportion to test records and need to be between 0 to 1 (usually 0.1-0.2)
+    """
+    # Create a loop to generate 10 test/train splits
+    for i in range(num_splits):
+        df=pd.read_csv('c13k_selections.csv')
+        # Perform the train-test split
+        train_df, test_df = train_test_split(df, test_size=test_size, random_state=i)
+
+        # Create a new column 'TEST_TRAIN' with values 'TRAIN' for train set and 'TEST' for test set
+        train_df['TEST_TRAIN'] = 'TRAIN'
+        test_df['TEST_TRAIN'] = 'TEST'
+
+        # Concatenate train and test DataFrames
+        final_df = pd.concat([train_df, test_df], axis=0)
+
+        # Save the DataFrame to a CSV file
+        file_name = f'c13k_selections_{i + 1}.csv'
+        final_df.to_csv(file_name, index=False)
+
+        print(f'Split {i + 1} saved as {file_name}')
 
 
 if __name__ == '__main__':
-    #preprocess(csvName='synth2', pklName='synth2')
+    #test_train_split()
+    #preprocess(csvName='c13k_selections', pklName='c13k_selections')
     """
-    run preprocessing only *once*, *on the whole dataset*. then you can train many models as you wish, per subgroup or for all of the data.
+    run preprocessing and test_train_split only *once*, *on the whole dataset*. then you can train many models as you wish, per subgroup or for all of the data.
     you will receive  pickles files of the processed dataset.
     """
-    trainBEASTNet(nLastFile=1566, pklName='synth2', csvName='synth2_10', csvNameFinal='synth2_10', logName='synth2_10',
+    split=1
+    trainBEASTNet(nLastFile=9831, pklName='c13k_selections', csvName='c13k_selections_'+str(split), csvNameFinal='c13k_selections_'+str(split), logName='c13k_selections_'+str(split),
                probs0=[2.1, 1.0, 1.0, 1.0], probs1=[2.7, 1.0, 1.0, 1.0], probs2=[2.85, 1.0, 1.0, 1.0],
-               probs3=[2.95, 1.0, 1.0, 1.0], probs4=[3.05, 1.0, 1.0, 1.0], BEV=1, b=0.8)
+              probs3=[2.95, 1.0, 1.0, 1.0], probs4=[3.05, 1.0, 1.0, 1.0], BEV=0.3, b=0.2,dom=False)
+    trainBEASTNet(nLastFile=9831, pklName='c13k_selections', csvName='c13k_selections_'+str(split), csvNameFinal='c13k_selections_'+str(split), logName='c13k_selections_'+str(split),
+               probs0=[2.1, 1.0, 1.0, 1.0], probs1=[2.7, 1.0, 1.0, 1.0], probs2=[2.85, 1.0, 1.0, 1.0],
+              probs3=[2.95, 1.0, 1.0, 1.0], probs4=[3.05, 1.0, 1.0, 1.0], BEV=0.3, b=0.2,dom=True)
     """
     those probs0,...probs1 values are for the probabilities of the original BEAST model.
-    if you want to run a subgroup model. please train the model first on non dominant problems, and then take the parameters it learned from the log file, and  put them in probs0,...probs4 and run the model on the subgroup.
-    when you run a model on a subgroup/non_dom/dom choice tasks, the csv must include only those choice tasks. while the pickle file will include all of the dataset
+    if you want to run a subgroup model. please train the model first on non dominant problems (dom=False), and then take the parameters it learned from the log file, and  put them in probs0,...probs4 and run the model on the subgroup.
+    when you run a model on a subgroup of choice tasks, the csv must include only those choice tasks and  you can mark dom=True/False. while the pickle file will include all of the dataset
     for getting a clustered model please run deep_clustering_kmeans.py which produced a clustered dataset (with column 'cluster') and then run a different BEASTNet model per cluster, you will need to create a seperate csv file per cluster as any other subgroup
     """
+    df=pd.read_csv('c13k_selections_1_non_dom.csv')
+    df=df.append(pd.read_csv('c13k_selections_1_dom.csv'))
+    test=df[(df['TEST_TRAIN']=='TEST')]
+    print(mean_squared_error(test['bRate'],test['BEASTNET']))
+
+
 

@@ -1,13 +1,12 @@
 import math
 import numpy as np
-from .CPC18_getDist import CPC18_getDist
-from .CPC15_isStochasticDom import CPC15_isStochasticDom
-from .get_pBetter import get_pBetter
-from .CPC15_BEASTpred import CPC15_BEASTpred
+from CPC18_getDist import CPC18_getDist
+from CPC15_isStochasticDom import CPC15_isStochasticDom
+from get_pBetter import get_pBetter
 import pandas as pd
 
 
-def get_PF_Features(Ha, pHa, La, LotShapeA, LotNumA, Hb, pHb, Lb, LotShapeB, LotNumB, Amb, Corr):
+def get_PF_Features(Problem,Ha, pHa, La, LotShapeA, LotNumA, Hb, pHb, Lb, LotShapeB, LotNumB, Amb, Corr):
     # Finds the values of the engineered features that are part of Psychological Forest
     # Gets as input the parameters defining the choice problem in CPC18 and returns
     # as output a pandas data frame with this problem's features
@@ -107,31 +106,28 @@ def get_PF_Features(Ha, pHa, La, LotShapeA, LotNumA, Hb, pHb, Lb, LotShapeB, Lot
     lot_shape_listB = lot_shape_convert(LotShapeB)
 
     # create features data frame
-    feats_labels = ('Ha', 'pHa', 'La', 'lot_shape__A', 'lot_shape_symm_A', 'lot_shape_L_A', 'lot_shape_R_A', 'LotNumA',
-                    'Hb', 'pHb', 'Lb', 'lot_shape__B', 'lot_shape_symm_B', 'lot_shape_L_B', 'lot_shape_R_B', 'LotNumB',
-                    'Amb', 'Corr', 'diffEV', 'diffSDs', 'diffMins', 'diffMaxs', 'diffUV', 'RatioMin', 'SignMax',
+    feats_labels = ('Problem','diffEV', 'diffSDs', 'diffMins', 'diffMaxs', 'diffUV', 'RatioMin', 'SignMax',
                     'pBbet_Unbiased1', 'pBbet_UnbiasedFB', 'pBbet_Uniform', 'pBbet_Sign1', 'pBbet_SignFB', 'Dom',
                     'diffBEV0', 'diffBEVfb', 'diffSignEV')
-    data_lists = [[Ha, pHa, La], lot_shape_listA, [LotNumA, Hb, pHb, Lb], lot_shape_listB, [LotNumB, Amb, Corr,
-                             diffEV, diffSDs, diffMins, diffMaxs, diffUV, RatioMin, SignMax, pBbet_Unbiased1,
+    data_lists = [[Problem,diffEV, diffSDs, diffMins, diffMaxs, diffUV, RatioMin, SignMax, pBbet_Unbiased1,
                              pBbet_UnbiasedFB, pBbet_Uniform, pBbet_Sign1, pBbet_SignFB, Dom, diffBEV0,
                              diffBEVfb, diffSignEV]]
     features_data = [item for sublist in data_lists for item in sublist]
     tmpFeats = pd.DataFrame(features_data, index=feats_labels).T
 
     # duplicate features data frame as per number of blocks
-    Feats = pd.concat([tmpFeats] * 5)
+    #Feats = pd.concat([tmpFeats] * 5)
 
     # get BEAST model prediction as feature
     #beastPs, BEVa, BEVb, STa, STb = CPC15_BEASTpred(Ha, pHa, La, LotShapeA, LotNumA, Hb, pHb, Lb, LotShapeB, LotNumB, Amb, Corr)
     #Feats['BEASTpred'] = beastPs
     STa,STb=0,0
 
-    Feats['block'] = np.arange(1, 6)
-    Feats['Feedback'] = 1
-    Feats.loc[Feats['block'] == 1, 'Feedback'] = 0
+    #Feats['block'] = np.arange(1, 6)
+    #Feats['Feedback'] = 1
+    #Feats.loc[Feats['block'] == 1, 'Feedback'] = 0
 
-    return tmpFeats,BEVa, BEVb, STa, STb
+    return tmpFeats
 
 
 # To compute the distribution's standard deviation

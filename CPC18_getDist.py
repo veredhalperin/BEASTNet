@@ -1,9 +1,9 @@
 import numpy as np
 from scipy import stats
-from .distSample import distSample
-from .CPC15_isStochasticDom import CPC15_isStochasticDom
-from .get_pBetter import get_pBetter
-from .CPC15_BEASTsimulation import CPC15_BEASTsimulation
+from distSample import distSample
+from CPC15_isStochasticDom import CPC15_isStochasticDom
+from get_pBetter import get_pBetter
+from CPC15_BEASTsimulation import CPC15_BEASTsimulation
 
 
 def CPC18_getDist(H, pH, L, lot_shape, lot_num):

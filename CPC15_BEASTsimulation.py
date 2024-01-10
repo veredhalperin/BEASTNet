@@ -1,6 +1,6 @@
 import numpy as np
-from .CPC15_isStochasticDom import CPC15_isStochasticDom
-from .distSample import distSample
+from CPC15_isStochasticDom import CPC15_isStochasticDom
+from distSample import distSample
 
 
 def CPC15_BEASTsimulation(DistA, DistB, Amb, Corr):
